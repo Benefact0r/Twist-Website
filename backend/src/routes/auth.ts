@@ -11,6 +11,7 @@ import { prisma } from "../lib/prisma";
 import { sha256 } from "../lib/security";
 
 const REFRESH_COOKIE = "twist_refresh";
+const cookieSameSite = isProduction ? "none" : "lax";
 
 const signupSchema = z.object({
   email: z.string().email(),
@@ -59,14 +60,18 @@ const setRefreshCookie = (res: any, token: string) => {
   res.cookie(REFRESH_COOKIE, token, {
     httpOnly: true,
     secure: config.cookieSecure || isProduction,
-    sameSite: "lax",
+    sameSite: cookieSameSite,
     path: "/",
     maxAge: config.jwt.refreshTtlDays * 24 * 60 * 60 * 1000,
   });
 };
 
 const clearRefreshCookie = (res: any) => {
-  res.clearCookie(REFRESH_COOKIE, { path: "/" });
+  res.clearCookie(REFRESH_COOKIE, {
+    path: "/",
+    secure: config.cookieSecure || isProduction,
+    sameSite: cookieSameSite,
+  });
 };
 
 export const authRouter = Router();

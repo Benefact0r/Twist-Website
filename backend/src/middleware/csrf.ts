@@ -3,6 +3,7 @@ import { generateCsrfToken } from "../lib/security";
 import { isProduction } from "../config";
 
 const CSRF_COOKIE = "twist_csrf";
+const csrfCookieSameSite = isProduction ? "none" : "lax";
 
 export const attachCsrfCookie = (req: Request, res: Response, next: NextFunction) => {
   const existing = req.cookies?.[CSRF_COOKIE];
@@ -13,7 +14,7 @@ export const attachCsrfCookie = (req: Request, res: Response, next: NextFunction
     res.cookie(CSRF_COOKIE, token, {
       httpOnly: false,
       secure: isProduction,
-      sameSite: "lax",
+      sameSite: csrfCookieSameSite,
       path: "/",
     });
   }
