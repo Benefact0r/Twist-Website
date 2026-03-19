@@ -35,9 +35,8 @@ export async function ensureCsrfToken() {
 }
 
 async function refreshAccessToken() {
-  try {
-    const csrfToken = tokenStore.csrfToken || (await ensureCsrfToken());
-    const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+  const sendRefreshRequest = async (csrfToken: string) =>
+    fetch(`${API_BASE_URL}/auth/refresh`, {
       method: "POST",
       credentials: "include",
       headers: {
@@ -45,6 +44,16 @@ async function refreshAccessToken() {
         "x-csrf-token": csrfToken,
       },
     });
+
+  try {
+    const csrfToken = tokenStore.csrfToken || (await ensureCsrfToken());
+    let response = await sendRefreshRequest(csrfToken);
+    if (response.status === 403) {
+      // CSRF token can become stale after cookie changes/redeploys; re-sync once.
+      tokenStore.csrfToken = null;
+      const nextCsrfToken = await ensureCsrfToken();
+      response = await sendRefreshRequest(nextCsrfToken);
+    }
     if (!response.ok) return false;
     const json = await response.json();
     if (json.accessToken) {

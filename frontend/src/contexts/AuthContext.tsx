@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { authSignIn, authSignOut, authSignUp, request } from '@/lib/apiClient';
+import { authSignIn, authSignOut, authSignUp, request, tokenStore } from '@/lib/apiClient';
 
 interface AuthUser {
   id: string;
@@ -81,6 +81,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
     };
     const init = async () => {
+      if (!tokenStore.accessToken) {
+        setUser(null);
+        setSession(null);
+        setProfile(null);
+        setLoading(false);
+        return;
+      }
+
       try {
         const data = await request<MeResponse>('/auth/me', { auth: true });
         const nextUser: AuthUser = {
