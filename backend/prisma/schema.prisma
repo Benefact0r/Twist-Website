@@ -1,0 +1,282 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  BUYER
+  SELLER
+  ADMIN
+  COURIER
+}
+
+enum ListingCondition {
+  NEW
+  LIKE_NEW
+  GOOD
+  FAIR
+}
+
+enum ListingStatus {
+  DRAFT
+  ACTIVE
+  SOLD
+  ARCHIVED
+}
+
+enum OfferStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  EXPIRED
+  COUNTERED
+  CANCELLED
+  PAYMENT_COMPLETED
+}
+
+enum ReportStatus {
+  OPEN
+  IN_REVIEW
+  RESOLVED
+  REJECTED
+}
+
+model User {
+  id                 String         @id @default(cuid())
+  email              String         @unique
+  passwordHash       String
+  username           String?        @unique
+  fullName           String?
+  firstName          String?
+  lastName           String?
+  phone              String?
+  phoneVerified      Boolean        @default(false)
+  bio                String?
+  city               String?
+  address            String?
+  postalCode         String?
+  avatarUrl          String?
+  isSuspended        Boolean        @default(false)
+  suspensionReason   String?
+  suspensionDuration String?
+  suspensionExpires  DateTime?
+  emailVerifiedAt    DateTime?
+  role               UserRole       @default(BUYER)
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  listings           Listing[]
+  favorites          Favorite[]
+  refreshTokens      RefreshToken[]
+  sentMessages       Message[]      @relation("MessageSender")
+  conversationsP1    Conversation[] @relation("ConversationP1")
+  conversationsP2    Conversation[] @relation("ConversationP2")
+  offeredOffers      Offer[]        @relation("OfferBuyer")
+  receivedOffers     Offer[]        @relation("OfferSeller")
+  reports            Report[]
+  notifications      Notification[]
+  auditLogs          AuditLog[]      @relation("AuditActor")
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String
+  revokedAt DateTime?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Listing {
+  id            String           @id @default(cuid())
+  sellerId      String
+  title         String
+  description   String?
+  price         Decimal          @db.Decimal(12, 2)
+  category      String
+  condition     ListingCondition
+  status        ListingStatus    @default(ACTIVE)
+  favoriteCount Int              @default(0)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  seller        User             @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  images        ListingImage[]
+  favorites     Favorite[]
+  offers        Offer[]
+  conversations Conversation[]
+  orders        Order[]
+
+  @@index([sellerId, status])
+  @@index([category, status, createdAt])
+  @@index([status, createdAt])
+}
+
+model ListingImage {
+  id         String   @id @default(cuid())
+  listingId  String
+  objectKey  String
+  publicUrl  String
+  orderIndex Int      @default(0)
+  width      Int?
+  height     Int?
+  createdAt  DateTime @default(now())
+  listing    Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId, orderIndex])
+}
+
+model Favorite {
+  id        String   @id @default(cuid())
+  userId    String
+  listingId String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, listingId])
+  @@index([listingId])
+}
+
+model Offer {
+  id            String      @id @default(cuid())
+  listingId     String
+  buyerId       String
+  sellerId      String
+  offeredAmount Decimal     @db.Decimal(12, 2)
+  originalPrice Decimal     @db.Decimal(12, 2)
+  status        OfferStatus @default(PENDING)
+  message       String?
+  counterOffer  Decimal?    @db.Decimal(12, 2)
+  expiresAt     DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  listing       Listing     @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  buyer         User        @relation("OfferBuyer", fields: [buyerId], references: [id], onDelete: Cascade)
+  seller        User        @relation("OfferSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  messages      Message[]
+}
+
+model Conversation {
+  id            String    @id @default(cuid())
+  participant1Id String
+  participant2Id String
+  listingId     String?
+  lastMessageAt DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+  participant1  User      @relation("ConversationP1", fields: [participant1Id], references: [id], onDelete: Cascade)
+  participant2  User      @relation("ConversationP2", fields: [participant2Id], references: [id], onDelete: Cascade)
+  listing       Listing?  @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  messages      Message[]
+
+  @@index([participant1Id, lastMessageAt])
+  @@index([participant2Id, lastMessageAt])
+}
+
+model Message {
+  id             String   @id @default(cuid())
+  conversationId String
+  senderId       String
+  content        String
+  messageType    String   @default("text")
+  offerId        String?
+  read           Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         User     @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  offer          Offer?   @relation(fields: [offerId], references: [id], onDelete: SetNull)
+
+  @@index([conversationId, createdAt])
+}
+
+model Report {
+  id              String       @id @default(cuid())
+  reporterId      String
+  targetType      String
+  targetId        String
+  sellerId        String?
+  reason          String
+  reportCategory  String
+  optionalDetails String?
+  priority        String       @default("normal")
+  status          ReportStatus @default(OPEN)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  reporter        User         @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+
+  @@index([targetType, targetId])
+  @@index([reporterId, createdAt])
+}
+
+model UserReportLimit {
+  id          String   @id @default(cuid())
+  userId      String
+  reportDate  DateTime
+  reportCount Int      @default(0)
+
+  @@unique([userId, reportDate])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String
+  titleKa   String
+  titleEn   String
+  messageKa String
+  messageEn String
+  linkUrl   String?
+  dataJson  Json?
+  readAt    DateTime?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model Order {
+  id                 String   @id @default(cuid())
+  buyerId            String
+  sellerId           String
+  listingId          String
+  itemTitle          String
+  itemImage          String?
+  itemPrice          Decimal  @db.Decimal(12, 2)
+  deliveryCost       Decimal  @db.Decimal(12, 2)
+  buyerProtectionFee Decimal  @db.Decimal(12, 2)
+  totalAmount        Decimal  @db.Decimal(12, 2)
+  status             String
+  shippingFullName   String
+  shippingPhone      String
+  shippingStreet     String
+  shippingCity       String
+  shippingRegion     String?
+  shippingPostalCode String?
+  paymentCardLast4   String?
+  paidAt             DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  listing            Listing  @relation(fields: [listingId], references: [id], onDelete: Restrict)
+
+  @@index([buyerId, createdAt])
+  @@index([sellerId, createdAt])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  adminId    String
+  actionType String
+  entityType String
+  entityId   String
+  details    Json?
+  createdAt  DateTime @default(now())
+  admin      User     @relation("AuditActor", fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId, createdAt])
+  @@index([entityType, entityId])
+}
