@@ -4,6 +4,7 @@ import crypto from "crypto";
 import { Router } from "express";
 import { z } from "zod";
 import { config, isProduction } from "../config";
+import { canSendMail, sendPasswordResetEmail } from "../lib/mailer";
 import { requireAuth } from "../middleware/auth";
 import { requireCsrf } from "../middleware/csrf";
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../lib/jwt";
@@ -75,8 +76,27 @@ const clearRefreshCookie = (res: any) => {
 };
 
 export const authRouter = Router();
-const passwordResetTokens = new Map<string, { userId: string; expiresAt: number }>();
 const phoneCodes = new Map<string, { code: string; expiresAt: number }>();
+let passwordResetTableReady = false;
+
+const ensurePasswordResetTable = async () => {
+  if (passwordResetTableReady) return;
+
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS "PasswordResetToken" (
+      "id" TEXT PRIMARY KEY,
+      "userId" TEXT NOT NULL REFERENCES "User"("id") ON DELETE CASCADE,
+      "tokenHash" TEXT NOT NULL UNIQUE,
+      "expiresAt" TIMESTAMPTZ NOT NULL,
+      "usedAt" TIMESTAMPTZ,
+      "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await prisma.$executeRawUnsafe(
+    `CREATE INDEX IF NOT EXISTS "PasswordResetToken_userId_expiresAt_idx" ON "PasswordResetToken"("userId", "expiresAt")`,
+  );
+  passwordResetTableReady = true;
+};
 
 authRouter.get("/check-email", async (req, res) => {
   const parsed = checkEmailSchema.safeParse({ email: req.query.email });
@@ -96,20 +116,32 @@ authRouter.get("/check-email", async (req, res) => {
 authRouter.post("/forgot-password", async (req, res) => {
   const parsed = forgotPasswordSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  await ensurePasswordResetTable();
+
+  if (isProduction && !canSendMail()) {
+    return res.status(503).json({ error: "Password recovery is temporarily unavailable" });
+  }
 
   const user = await prisma.user.findUnique({ where: { email: parsed.data.email } });
   if (user) {
     const token = crypto.randomUUID();
-    passwordResetTokens.set(token, {
-      userId: user.id,
-      expiresAt: Date.now() + 30 * 60 * 1000,
-    });
-    // For development migration flow we expose resetUrl directly.
-    if (!isProduction) {
-      return res.json({
-        ok: true,
-        resetUrl: `${config.frontendUrl}/reset-password?token=${encodeURIComponent(token)}`,
-      });
+    const tokenHash = sha256(token);
+    const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+    await prisma.$executeRaw`
+      INSERT INTO "PasswordResetToken" ("id", "userId", "tokenHash", "expiresAt")
+      VALUES (${crypto.randomUUID()}, ${user.id}, ${tokenHash}, ${expiresAt})
+    `;
+
+    const resetUrl = `${config.frontendUrl}/reset-password?token=${encodeURIComponent(token)}`;
+    try {
+      const sent = await sendPasswordResetEmail(user.email, resetUrl);
+      if (!sent && !isProduction) {
+        return res.json({ ok: true, resetUrl });
+      }
+    } catch {
+      if (!isProduction) {
+        return res.json({ ok: true, resetUrl });
+      }
     }
   }
   return res.json({ ok: true });
@@ -118,18 +150,33 @@ authRouter.post("/forgot-password", async (req, res) => {
 authRouter.post("/reset-password", async (req, res) => {
   const parsed = resetPasswordSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  await ensurePasswordResetTable();
 
-  const record = passwordResetTokens.get(parsed.data.token);
-  if (!record || record.expiresAt < Date.now()) {
+  const tokenHash = sha256(parsed.data.token);
+  const records = await prisma.$queryRaw<Array<{ id: string; userId: string; expiresAt: Date; usedAt: Date | null }>>`
+    SELECT "id", "userId", "expiresAt", "usedAt"
+    FROM "PasswordResetToken"
+    WHERE "tokenHash" = ${tokenHash}
+    LIMIT 1
+  `;
+  const record = records[0];
+
+  if (!record || record.usedAt || new Date(record.expiresAt).getTime() < Date.now()) {
     return res.status(400).json({ error: "Invalid or expired reset token" });
   }
 
   const passwordHash = await bcrypt.hash(parsed.data.password, 12);
-  await prisma.user.update({
-    where: { id: record.userId },
-    data: { passwordHash },
-  });
-  passwordResetTokens.delete(parsed.data.token);
+  await prisma.$transaction([
+    prisma.user.update({
+      where: { id: record.userId },
+      data: { passwordHash },
+    }),
+    prisma.$executeRaw`UPDATE "PasswordResetToken" SET "usedAt" = NOW() WHERE "id" = ${record.id}`,
+    prisma.refreshToken.updateMany({
+      where: { userId: record.userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    }),
+  ]);
 
   return res.json({ ok: true });
 });

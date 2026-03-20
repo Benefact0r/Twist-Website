@@ -23,6 +23,14 @@ export const config = {
     projectId: process.env.GCS_PROJECT_ID || "",
     bucket: process.env.GCS_BUCKET || "",
   },
+  smtp: {
+    host: process.env.SMTP_HOST || "",
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: parseBool(process.env.SMTP_SECURE, false),
+    user: process.env.SMTP_USER || "",
+    pass: process.env.SMTP_PASS || "",
+    from: process.env.MAIL_FROM || "",
+  },
 };
 
 export const isProduction = config.nodeEnv === "production";
