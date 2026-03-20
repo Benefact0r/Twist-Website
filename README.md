@@ -1,21 +1,16 @@
 # Twist Website
 
-Monorepo for the Twist marketplace migration from Supabase runtime dependencies to a custom backend on Google Cloud.
+Twist marketplace monorepo.
 
-## Project Structure
+## Structure
 
-- `frontend/` - Vite + React + TypeScript client app
-- `backend/` - Express + TypeScript API server
-- `backend/prisma/` - Prisma schema and database layer
-- `images/` - local image source assets used during migration/import
+- `frontend/` - Vite, React, TypeScript
+- `backend/` - Express, TypeScript, Prisma
+- `backend/prisma/` - database schema
 
 ## Local Development
 
 ### Frontend
-
-1. Copy `frontend/.env.example` to `frontend/.env`
-2. Set `VITE_API_BASE_URL` (Cloud Run API URL or local API URL)
-3. Run:
 
 ```bash
 cd frontend
@@ -25,23 +20,17 @@ npm run dev
 
 ### Backend
 
-1. Copy `backend/.env.example` to `backend/.env`
-2. Configure DB/JWT/GCS variables
-3. Run:
-
 ```bash
 cd backend
 npm install
 npm run dev
 ```
 
-## Deployment Notes
+Copy `.env.example` to `.env` in both `frontend/` and `backend/` before running.
 
-- Backend deploy target: Google Cloud Run
-- Database: Cloud SQL PostgreSQL (via Prisma)
-- Assets: Google Cloud Storage
-- Frontend can be deployed to Firebase Hosting or another static host
+## Deployment
 
-## Data Hygiene
-
-Migration/export files such as `database-items.csv`, `database-profiles.csv`, and `image-manifest.csv` are intentionally ignored at repo root and should be kept outside version control after import is complete.
+- API: Google Cloud Run
+- Database: Cloud SQL (PostgreSQL)
+- Object storage: Google Cloud Storage
+- Frontend: Firebase Hosting (or equivalent static hosting)

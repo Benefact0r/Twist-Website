@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link, useLocation } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -55,6 +55,7 @@ interface SignupData extends SignupStep1Data {
 
 const Auth: React.FC = () => {
   const [searchParams] = useSearchParams();
+  const location = useLocation();
   const [view, setView] = useState<AuthView>('login');
   const [signupStep, setSignupStep] = useState<SignupStep>('info');
   const [signupData, setSignupData] = useState<SignupData | null>(null);
@@ -87,12 +88,27 @@ const Auth: React.FC = () => {
 
   // Check if redirected for phone verification
   useEffect(() => {
+    const viewParam = searchParams.get('view');
+    if (viewParam === 'forgot-password') {
+      setView('forgot-password');
+      return;
+    }
+    if (viewParam === 'signup') {
+      setView('signup');
+      setSignupStep('info');
+      return;
+    }
+    if (location.pathname === '/forgot-password') {
+      setView('forgot-password');
+      return;
+    }
+
     const verifyPhone = searchParams.get('verify-phone');
     if (verifyPhone === 'true') {
       setView('signup');
       setSignupStep('phone-verify');
     }
-  }, [searchParams]);
+  }, [searchParams, location.pathname]);
 
   // Redirect if already logged in
   useEffect(() => {

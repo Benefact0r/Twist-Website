@@ -109,6 +109,7 @@ const App = () => (
                   {/* Lazy loaded routes */}
                   <Route path="/auth" element={<Auth />} />
                   <Route path="/login" element={<Auth />} />
+                  <Route path="/forgot-password" element={<Auth />} />
                   <Route path="/checkout/:itemId" element={<ItemCheckout />} />
                   <Route path="/checkout/offer/:offerId" element={<OfferCheckout />} />
                   <Route path="/sell" element={<Sell />} />
