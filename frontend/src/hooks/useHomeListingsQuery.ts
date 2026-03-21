@@ -122,7 +122,7 @@ function pickDiverse(items: Listing[], count: number): Listing[] {
 
 async function fetchHomeListings() {
   const FEATURED_COUNT = 8;
-  const NEW_ARRIVALS_COUNT = 10;
+  const NEW_ARRIVALS_COUNT = 8;
 
   // Fetch from API
   const home = await request<{ newArrivals: SupabaseItem[]; popularListings: SupabaseItem[] }>('/listings/home', { auth: false });
@@ -143,19 +143,17 @@ async function fetchHomeListings() {
     featured = pickDiverse(combined, FEATURED_COUNT);
   }
 
-  const featuredIds = new Set(featured.map((l) => l.id));
-
   const newestAll = (home.newArrivals || []).map((item) =>
     transformItemToListing(item as unknown as SupabaseItem)
   );
 
-  // Exclude featured items
-  let newArrivals = newestAll.filter((l) => !featuredIds.has(l.id)).slice(0, NEW_ARRIVALS_COUNT);
+  let newArrivals = newestAll.slice(0, NEW_ARRIVALS_COUNT);
 
-  // Fill with mock if needed
-  if (newArrivals.length < 5) {
+  // Fill with mock if needed to always render full row sets.
+  if (newArrivals.length < NEW_ARRIVALS_COUNT) {
+    const usedIds = new Set(newArrivals.map((l) => l.id));
     const mockNewest = mockListings
-      .filter((l) => !featuredIds.has(l.id))
+      .filter((l) => !usedIds.has(l.id))
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
       .slice(0, NEW_ARRIVALS_COUNT - newArrivals.length);
     newArrivals = [...newArrivals, ...mockNewest].slice(0, NEW_ARRIVALS_COUNT);

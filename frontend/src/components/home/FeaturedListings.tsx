@@ -26,11 +26,7 @@ export function FeaturedListings() {
           </Button>
         </div>
 
-        {loading ? (
-          <ListingGridSkeleton count={5} />
-        ) : (
-          <ListingGrid listings={newArrivals} />
-        )}
+        {loading ? <ListingGridSkeleton count={8} /> : <ListingGrid listings={newArrivals.slice(0, 8)} />}
       </div>
     </section>
   );

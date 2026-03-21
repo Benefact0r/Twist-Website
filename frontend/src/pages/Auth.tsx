@@ -15,6 +15,7 @@ import PhoneVerification from '@/components/auth/PhoneVerification';
 import AddressForm, { AddressFormData } from '@/components/auth/AddressForm';
 import ForgotPassword from '@/components/auth/ForgotPassword';
 import { request } from '@/lib/apiClient';
+import twistLogo from '@/assets/twist-logo.png';
 
 const loginSchema = z.object({
   email: z.string().email('გთხოვთ შეიყვანოთ სწორი ელფოსტა'),
@@ -586,8 +587,12 @@ const Auth: React.FC = () => {
           <div className="bg-card rounded-2xl shadow-xl p-8">
             {/* Logo */}
             <div className="text-center mb-8">
-              <div className="w-16 h-16 bg-primary rounded-full flex items-center justify-center mx-auto mb-4">
-                <span className="text-primary-foreground text-2xl font-bold">T</span>
+              <div className="flex items-center justify-center mb-4">
+                <img
+                  src={twistLogo}
+                  alt="Twist"
+                  className="h-10 w-auto object-contain group-hover:scale-105 transition-transform"
+                />
               </div>
               <h1 className="text-2xl font-bold text-foreground">
                 {view === 'login' ? 'კეთილი იყოს თქვენი მობრძანება' : 'შექმენით ანგარიში'}
