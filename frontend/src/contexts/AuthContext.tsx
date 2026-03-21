@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { authSignIn, authSignOut, authSignUp, request, tokenStore } from '@/lib/apiClient';
+import { authSignIn, authSignInWithGoogle, authSignOut, authSignUp, request, tokenStore } from '@/lib/apiClient';
 
 interface AuthUser {
   id: string;
@@ -49,6 +49,7 @@ interface AuthContextType {
   isEmailVerified: boolean;
   signUp: (email: string, password: string, metadata?: SignUpMetadata) => Promise<{ error: unknown; userId?: string }>;
   signIn: (email: string, password: string) => Promise<{ error: unknown }>;
+  signInWithGoogle: (idToken: string) => Promise<{ error: unknown }>;
   signOut: () => Promise<void>;
   updateProfile: (updates: Partial<Profile>) => Promise<{ error: unknown }>;
   refreshProfile: () => Promise<void>;
@@ -151,6 +152,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setProfile(null);
   };
 
+  const signInWithGoogle = async (idToken: string) => {
+    try {
+      const data = await authSignInWithGoogle(idToken);
+      const nextUser: AuthUser = {
+        id: data.user.id,
+        email: data.user.email,
+        email_confirmed_at: data.user.email_confirmed_at || null,
+      };
+      setUser(nextUser);
+      setSession({ access_token: data.accessToken });
+      await fetchProfile();
+      return { error: null };
+    } catch (error) {
+      return { error };
+    }
+  };
+
   const updateProfile = async (updates: Partial<Profile>) => {
     if (!user) return { error: new Error('Not authenticated') };
 
@@ -189,6 +207,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isEmailVerified,
       signUp,
       signIn,
+      signInWithGoogle,
       signOut,
       updateProfile,
       refreshProfile,

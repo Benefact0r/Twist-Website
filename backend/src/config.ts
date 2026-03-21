@@ -23,6 +23,9 @@ export const config = {
     projectId: process.env.GCS_PROJECT_ID || "",
     bucket: process.env.GCS_BUCKET || "",
   },
+  google: {
+    clientId: process.env.GOOGLE_CLIENT_ID || "",
+  },
   smtp: {
     host: process.env.SMTP_HOST || "",
     port: Number(process.env.SMTP_PORT || 587),

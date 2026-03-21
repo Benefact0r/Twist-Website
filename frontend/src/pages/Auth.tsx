@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams, Link, useLocation } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -53,6 +53,19 @@ interface SignupData extends SignupStep1Data {
   postalCode?: string;
 }
 
+declare global {
+  interface Window {
+    google?: {
+      accounts?: {
+        id?: {
+          initialize: (options: Record<string, unknown>) => void;
+          renderButton: (element: HTMLElement, options: Record<string, unknown>) => void;
+        };
+      };
+    };
+  }
+}
+
 const Auth: React.FC = () => {
   const [searchParams] = useSearchParams();
   const location = useLocation();
@@ -63,9 +76,39 @@ const Auth: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [createdUserId, setCreatedUserId] = useState<string | null>(null);
   const [emailCheckState, setEmailCheckState] = useState<'idle' | 'checking' | 'available' | 'taken'>('idle');
+  const [googleReady, setGoogleReady] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const googleButtonRef = useRef<HTMLDivElement | null>(null);
+  const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { user, signIn, signUp } = useAuth();
+  const { user, signIn, signInWithGoogle, signUp } = useAuth();
+
+  const handleGoogleCredential = useCallback(
+    async (response: { credential?: string }) => {
+      if (!response?.credential) return;
+
+      setIsGoogleLoading(true);
+      const { error } = await signInWithGoogle(response.credential);
+      setIsGoogleLoading(false);
+
+      if (error) {
+        toast({
+          title: 'შეცდომა',
+          description: 'Google ავტორიზაცია ვერ შესრულდა',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      toast({
+        title: 'წარმატება',
+        description: 'თქვენ წარმატებით შეხვედით სისტემაში',
+      });
+      navigate('/');
+    },
+    [navigate, signInWithGoogle, toast]
+  );
 
   // Debounced email check
   const checkEmailExists = useCallback(async (email: string) => {
@@ -109,6 +152,37 @@ const Auth: React.FC = () => {
       setSignupStep('phone-verify');
     }
   }, [searchParams, location.pathname]);
+
+  useEffect(() => {
+    if (!googleClientId) return;
+
+    const intervalId = window.setInterval(() => {
+      if (window.google?.accounts?.id) {
+        setGoogleReady(true);
+        window.clearInterval(intervalId);
+      }
+    }, 300);
+
+    return () => window.clearInterval(intervalId);
+  }, [googleClientId]);
+
+  useEffect(() => {
+    if (view !== 'login' || !googleClientId || !googleReady || !googleButtonRef.current) return;
+
+    window.google?.accounts?.id?.initialize({
+      client_id: googleClientId,
+      callback: handleGoogleCredential,
+    });
+
+    googleButtonRef.current.innerHTML = '';
+    window.google?.accounts?.id?.renderButton(googleButtonRef.current, {
+      theme: 'outline',
+      size: 'large',
+      text: 'continue_with',
+      shape: 'pill',
+      width: 320,
+    });
+  }, [view, googleClientId, googleReady, handleGoogleCredential]);
 
   // Redirect if already logged in
   useEffect(() => {
@@ -613,6 +687,23 @@ const Auth: React.FC = () => {
                     {isSubmitting ? 'იტვირთება...' : 'შესვლა'}
                   </Button>
                 </form>
+
+                {googleClientId && (
+                  <>
+                    <div className="my-4 flex items-center gap-2 text-xs text-muted-foreground">
+                      <div className="h-px flex-1 bg-border" />
+                      <span>ან</span>
+                      <div className="h-px flex-1 bg-border" />
+                    </div>
+
+                    <div className="flex justify-center">
+                      <div ref={googleButtonRef} />
+                    </div>
+                    {isGoogleLoading && (
+                      <p className="mt-2 text-center text-sm text-muted-foreground">იტვირთება...</p>
+                    )}
+                  </>
+                )}
               </>
             ) : (
               renderSignupStep()

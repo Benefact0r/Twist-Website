@@ -1,6 +1,7 @@
 import { UserRole } from "@prisma/client";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
+import { OAuth2Client } from "google-auth-library";
 import { Router } from "express";
 import { z } from "zod";
 import { config, isProduction } from "../config";
@@ -33,6 +34,9 @@ const signupSchema = z.object({
 const signinSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
+});
+const googleSigninSchema = z.object({
+  idToken: z.string().min(1),
 });
 
 const checkEmailSchema = z.object({
@@ -78,6 +82,21 @@ const clearRefreshCookie = (res: any) => {
 export const authRouter = Router();
 const phoneCodes = new Map<string, { code: string; expiresAt: number }>();
 let passwordResetTableReady = false;
+const googleClient = config.google.clientId ? new OAuth2Client(config.google.clientId) : null;
+
+const issueSession = async (user: { id: string; role: UserRole }, res: any) => {
+  const accessToken = signAccessToken({ sub: user.id, role: user.role });
+  const refreshToken = signRefreshToken({ sub: user.id, tokenId: crypto.randomUUID() });
+  await prisma.refreshToken.create({
+    data: {
+      userId: user.id,
+      tokenHash: sha256(refreshToken),
+      expiresAt: new Date(Date.now() + config.jwt.refreshTtlDays * 24 * 60 * 60 * 1000),
+    },
+  });
+  setRefreshCookie(res, refreshToken);
+  return accessToken;
+};
 
 const ensurePasswordResetTable = async () => {
   if (passwordResetTableReady) return;
@@ -236,17 +255,7 @@ authRouter.post("/signup", requireCsrf, async (req, res) => {
     },
   });
 
-  const accessToken = signAccessToken({ sub: user.id, role: user.role });
-  const refreshTokenId = crypto.randomUUID();
-  const refreshToken = signRefreshToken({ sub: user.id, tokenId: refreshTokenId });
-  await prisma.refreshToken.create({
-    data: {
-      userId: user.id,
-      tokenHash: sha256(refreshToken),
-      expiresAt: new Date(Date.now() + config.jwt.refreshTtlDays * 24 * 60 * 60 * 1000),
-    },
-  });
-  setRefreshCookie(res, refreshToken);
+  const accessToken = await issueSession(user, res);
   return res.json({ accessToken, user: sanitizeUser(user) });
 });
 
@@ -261,18 +270,56 @@ authRouter.post("/login", requireCsrf, async (req, res) => {
   const valid = await bcrypt.compare(password, user.passwordHash);
   if (!valid) return res.status(401).json({ error: "Invalid credentials" });
 
-  const accessToken = signAccessToken({ sub: user.id, role: user.role });
-  const refreshTokenId = crypto.randomUUID();
-  const refreshToken = signRefreshToken({ sub: user.id, tokenId: refreshTokenId });
-  await prisma.refreshToken.create({
-    data: {
-      userId: user.id,
-      tokenHash: sha256(refreshToken),
-      expiresAt: new Date(Date.now() + config.jwt.refreshTtlDays * 24 * 60 * 60 * 1000),
-    },
-  });
-  setRefreshCookie(res, refreshToken);
+  const accessToken = await issueSession(user, res);
   return res.json({ accessToken, user: sanitizeUser(user) });
+});
+
+authRouter.post("/google", requireCsrf, async (req, res) => {
+  if (!googleClient || !config.google.clientId) {
+    return res.status(503).json({ error: "Google sign-in is not configured" });
+  }
+
+  const parsed = googleSigninSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  try {
+    const ticket = await googleClient.verifyIdToken({
+      idToken: parsed.data.idToken,
+      audience: config.google.clientId,
+    });
+    const payload = ticket.getPayload();
+
+    const email = payload?.email?.toLowerCase().trim();
+    if (!email || payload.email_verified !== true) {
+      return res.status(401).json({ error: "Invalid Google account" });
+    }
+
+    let user = await prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      user = await prisma.user.create({
+        data: {
+          email,
+          passwordHash: await bcrypt.hash(crypto.randomUUID(), 12),
+          fullName: payload.name || undefined,
+          firstName: payload.given_name || undefined,
+          lastName: payload.family_name || undefined,
+          avatarUrl: payload.picture || undefined,
+          emailVerifiedAt: new Date(),
+          role: UserRole.BUYER,
+        },
+      });
+    } else if (!user.emailVerifiedAt) {
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: { emailVerifiedAt: new Date() },
+      });
+    }
+
+    const accessToken = await issueSession(user, res);
+    return res.json({ accessToken, user: sanitizeUser(user) });
+  } catch {
+    return res.status(401).json({ error: "Google sign-in failed" });
+  }
 });
 
 authRouter.post("/refresh", requireCsrf, async (req, res) => {

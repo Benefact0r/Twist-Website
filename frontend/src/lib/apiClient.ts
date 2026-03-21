@@ -123,6 +123,17 @@ export async function authSignIn(email: string, password: string) {
   return data;
 }
 
+export async function authSignInWithGoogle(idToken: string) {
+  await ensureCsrfToken();
+  const data = await request<{ accessToken: string; user: any }>("/auth/google", {
+    method: "POST",
+    auth: false,
+    body: { idToken },
+  });
+  tokenStore.accessToken = data.accessToken;
+  return data;
+}
+
 export async function authSignUp(email: string, password: string, metadata?: Record<string, unknown>) {
   await ensureCsrfToken();
   const data = await request<{ accessToken: string; user: any }>("/auth/signup", {
