@@ -1,5 +1,20 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
 
+/** Backend may return `error` as a string or as a Zod flatten object — normalize for UI. */
+function extractApiErrorMessage(payload: Record<string, unknown>): string | null {
+  const err = payload.error;
+  if (typeof err === "string" && err.trim()) return err;
+  if (err && typeof err === "object") {
+    try {
+      return JSON.stringify(err);
+    } catch {
+      return String(err);
+    }
+  }
+  if (typeof payload.message === "string" && payload.message.trim()) return payload.message;
+  return null;
+}
+
 const ACCESS_TOKEN_KEY = "twist_access_token";
 const CSRF_KEY = "twist_csrf_token";
 
@@ -100,8 +115,9 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   if (!response.ok) {
     let message = `Request failed (${response.status})`;
     try {
-      const payload = await response.json();
-      message = payload.error || message;
+      const payload = (await response.json()) as Record<string, unknown>;
+      const extracted = extractApiErrorMessage(payload);
+      if (extracted) message = extracted;
     } catch {
       // no-op
     }

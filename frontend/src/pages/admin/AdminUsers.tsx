@@ -114,6 +114,10 @@ export default function AdminUsers() {
       setErrorMessage('Email and password are required');
       return;
     }
+    if (createForm.password.length < 8) {
+      setErrorMessage('Password must be at least 8 characters (API requirement).');
+      return;
+    }
     setErrorMessage(null);
     setCreating(true);
     try {
@@ -311,6 +315,7 @@ export default function AdminUsers() {
                 value={createForm.password}
                 onChange={(e) => setCreateForm((prev) => ({ ...prev, password: e.target.value }))}
               />
+              <p className="text-xs text-muted-foreground mt-1">Minimum 8 characters (same as the API).</p>
             </div>
             <div>
               <Label htmlFor="new-user-role">Role</Label>

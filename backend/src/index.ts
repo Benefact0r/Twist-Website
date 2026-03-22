@@ -26,6 +26,7 @@ import { sellersRouter } from "./routes/sellers";
 import { supportRouter } from "./routes/support";
 import { uploadsRouter } from "./routes/uploads";
 import { notificationHub } from "./ws/hub";
+import { bootstrapFirstAdmin } from "./lib/bootstrapAdmin";
 
 const app = express();
 
@@ -104,6 +105,13 @@ wss.on("connection", (socket, req) => {
   });
 });
 
-server.listen(config.port, () => {
-  console.log(`API listening on http://localhost:${config.port}`);
-});
+void (async () => {
+  try {
+    await bootstrapFirstAdmin();
+  } catch (err) {
+    console.error("[bootstrap] failed:", err);
+  }
+  server.listen(config.port, () => {
+    console.log(`API listening on http://localhost:${config.port}`);
+  });
+})();

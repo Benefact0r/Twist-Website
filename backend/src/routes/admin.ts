@@ -74,39 +74,58 @@ adminRouter.post("/users", ...adminRoleGuard, async (req, res) => {
     suspension_reason: z.string().optional(),
   });
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  if (!parsed.success) {
+    const hint =
+      parsed.error.issues?.map((i) => `${i.path.join(".") || "body"}: ${i.message}`).join("; ") ||
+      "Invalid request body";
+    return res.status(400).json({ error: hint, details: parsed.error.flatten() });
+  }
 
   const email = parsed.data.email.toLowerCase().trim();
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) return res.status(409).json({ error: "Email already in use" });
 
   const passwordHash = await bcrypt.hash(parsed.data.password, 12);
-  const user = await prisma.user.create({
-    data: {
-      email,
-      passwordHash,
-      role: parsed.data.role,
-      username: parsed.data.username,
-      fullName: parsed.data.full_name,
-      firstName: parsed.data.first_name,
-      lastName: parsed.data.last_name,
-      phone: parsed.data.phone,
-      city: parsed.data.city,
-      address: parsed.data.address,
-      isSuspended: parsed.data.is_suspended === true,
-      suspensionReason: parsed.data.is_suspended ? parsed.data.suspension_reason || "admin_action" : null,
-      suspensionDuration: parsed.data.is_suspended ? "manual" : null,
-      suspensionExpires: null,
-    },
-  });
+  try {
+    const user = await prisma.user.create({
+      data: {
+        email,
+        passwordHash,
+        role: parsed.data.role,
+        username: parsed.data.username,
+        fullName: parsed.data.full_name,
+        firstName: parsed.data.first_name,
+        lastName: parsed.data.last_name,
+        phone: parsed.data.phone,
+        city: parsed.data.city,
+        address: parsed.data.address,
+        isSuspended: parsed.data.is_suspended === true,
+        suspensionReason: parsed.data.is_suspended ? parsed.data.suspension_reason || "admin_action" : null,
+        suspensionDuration: parsed.data.is_suspended ? "manual" : null,
+        suspensionExpires: null,
+      },
+    });
 
-  await logAdminAction(req.auth!.userId, "admin_user_create", "user", user.id, {
-    created_role: user.role,
-    created_email: user.email,
-    created_is_suspended: user.isSuspended,
-  });
+    await logAdminAction(req.auth!.userId, "admin_user_create", "user", user.id, {
+      created_role: user.role,
+      created_email: user.email,
+      created_is_suspended: user.isSuspended,
+    });
 
-  return res.status(201).json({ user: mapUser(user) });
+    (req as { log?: { info: (o: unknown, msg?: string) => void } }).log?.info(
+      { userId: user.id, email: user.email, role: user.role },
+      "admin user created",
+    );
+
+    return res.status(201).json({ user: mapUser(user) });
+  } catch (err) {
+    (req as { log?: { error: (o: unknown, msg?: string) => void } }).log?.error({ err }, "admin user create failed");
+    const code = (err as { code?: string })?.code;
+    if (code === "P2002") {
+      return res.status(409).json({ error: "A unique field already exists (e.g. email or username)" });
+    }
+    return res.status(500).json({ error: "Failed to create user" });
+  }
 });
 
 adminRouter.get("/users", ...adminRoleGuard, async (req, res) => {
