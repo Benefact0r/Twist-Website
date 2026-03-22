@@ -8,7 +8,7 @@ import pinoHttp from "pino-http";
 import { WebSocketServer } from "ws";
 import { config } from "./config";
 import { requireAuth } from "./middleware/auth";
-import { attachCsrfCookie } from "./middleware/csrf";
+import { signCsrfToken } from "./lib/csrfToken";
 import { errorHandler, notFoundHandler } from "./middleware/error";
 import { verifyAccessToken } from "./lib/jwt";
 import { authRouter } from "./routes/auth";
@@ -33,14 +33,24 @@ const app = express();
 app.use(helmet());
 app.use(
   cors({
-    origin: config.frontendUrl,
+    origin: (origin, callback) => {
+      const allowed = config.frontendOrigins;
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+      if (allowed.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(null, false);
+    },
     credentials: true,
   }),
 );
 app.use(express.json({ limit: "2mb" }));
 app.use(cookieParser());
 app.use(pinoHttp());
-app.use(attachCsrfCookie);
 app.use(
   rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -51,7 +61,7 @@ app.use(
 );
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
-app.get("/csrf", (_req, res) => res.json({ csrfToken: _req.csrfTokenValue }));
+app.get("/csrf", (_req, res) => res.json({ csrfToken: signCsrfToken() }));
 
 app.use("/auth", authRouter);
 app.use("/admin", adminRouter);

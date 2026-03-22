@@ -95,7 +95,7 @@ const issueSession = async (user: { id: string; role: UserRole }, res: any) => {
     },
   });
   setRefreshCookie(res, refreshToken);
-  return accessToken;
+  return { accessToken, refreshToken };
 };
 
 const ensurePasswordResetTable = async () => {
@@ -255,8 +255,8 @@ authRouter.post("/signup", requireCsrf, async (req, res) => {
     },
   });
 
-  const accessToken = await issueSession(user, res);
-  return res.json({ accessToken, user: sanitizeUser(user) });
+  const { accessToken, refreshToken } = await issueSession(user, res);
+  return res.json({ accessToken, refreshToken, user: sanitizeUser(user) });
 });
 
 authRouter.post("/login", requireCsrf, async (req, res) => {
@@ -270,8 +270,8 @@ authRouter.post("/login", requireCsrf, async (req, res) => {
   const valid = await bcrypt.compare(password, user.passwordHash);
   if (!valid) return res.status(401).json({ error: "Invalid credentials" });
 
-  const accessToken = await issueSession(user, res);
-  return res.json({ accessToken, user: sanitizeUser(user) });
+  const { accessToken, refreshToken } = await issueSession(user, res);
+  return res.json({ accessToken, refreshToken, user: sanitizeUser(user) });
 });
 
 authRouter.post("/google", requireCsrf, async (req, res) => {
@@ -315,15 +315,19 @@ authRouter.post("/google", requireCsrf, async (req, res) => {
       });
     }
 
-    const accessToken = await issueSession(user, res);
-    return res.json({ accessToken, user: sanitizeUser(user) });
+    const { accessToken, refreshToken } = await issueSession(user, res);
+    return res.json({ accessToken, refreshToken, user: sanitizeUser(user) });
   } catch {
     return res.status(401).json({ error: "Google sign-in failed" });
   }
 });
 
 authRouter.post("/refresh", requireCsrf, async (req, res) => {
-  const token = req.cookies?.[REFRESH_COOKIE];
+  const bodyToken =
+    req.body && typeof req.body === "object" && typeof (req.body as { refreshToken?: unknown }).refreshToken === "string"
+      ? (req.body as { refreshToken: string }).refreshToken
+      : undefined;
+  const token = req.cookies?.[REFRESH_COOKIE] || bodyToken;
   if (!token) return res.status(401).json({ error: "Missing refresh token" });
 
   try {
@@ -348,14 +352,18 @@ authRouter.post("/refresh", requireCsrf, async (req, res) => {
       },
     });
     setRefreshCookie(res, newRefreshToken);
-    return res.json({ accessToken });
+    return res.json({ accessToken, refreshToken: newRefreshToken });
   } catch {
     return res.status(401).json({ error: "Invalid refresh token" });
   }
 });
 
 authRouter.post("/logout", requireCsrf, requireAuth, async (req, res) => {
-  const token = req.cookies?.[REFRESH_COOKIE];
+  const bodyToken =
+    req.body && typeof req.body === "object" && typeof (req.body as { refreshToken?: unknown }).refreshToken === "string"
+      ? (req.body as { refreshToken: string }).refreshToken
+      : undefined;
+  const token = req.cookies?.[REFRESH_COOKIE] || bodyToken;
   if (token) {
     await prisma.refreshToken.updateMany({
       where: { userId: req.auth!.userId, tokenHash: sha256(token), revokedAt: null },

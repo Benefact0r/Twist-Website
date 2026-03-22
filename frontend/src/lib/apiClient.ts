@@ -17,6 +17,8 @@ function extractApiErrorMessage(payload: Record<string, unknown>): string | null
 
 const ACCESS_TOKEN_KEY = "twist_access_token";
 const CSRF_KEY = "twist_csrf_token";
+/** Fallback when HttpOnly refresh cookies are blocked (e.g. iOS cross-site). */
+const REFRESH_TOKEN_KEY = "twist_refresh_token";
 
 type RequestOptions = {
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
@@ -40,6 +42,13 @@ export const tokenStore = {
     if (!token) localStorage.removeItem(CSRF_KEY);
     else localStorage.setItem(CSRF_KEY, token);
   },
+  get refreshToken() {
+    return localStorage.getItem(REFRESH_TOKEN_KEY);
+  },
+  set refreshToken(token: string | null) {
+    if (!token) localStorage.removeItem(REFRESH_TOKEN_KEY);
+    else localStorage.setItem(REFRESH_TOKEN_KEY, token);
+  },
 };
 
 export async function ensureCsrfToken() {
@@ -58,6 +67,9 @@ async function refreshAccessToken() {
         "Content-Type": "application/json",
         "x-csrf-token": csrfToken,
       },
+      body: JSON.stringify({
+        refreshToken: tokenStore.refreshToken || undefined,
+      }),
     });
 
   try {
@@ -70,9 +82,10 @@ async function refreshAccessToken() {
       response = await sendRefreshRequest(nextCsrfToken);
     }
     if (!response.ok) return false;
-    const json = await response.json();
+    const json = (await response.json()) as { accessToken?: string; refreshToken?: string };
     if (json.accessToken) {
       tokenStore.accessToken = json.accessToken;
+      if (json.refreshToken) tokenStore.refreshToken = json.refreshToken;
       return true;
     }
     return false;
@@ -130,23 +143,25 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 
 export async function authSignIn(email: string, password: string) {
   await ensureCsrfToken();
-  const data = await request<{ accessToken: string; user: unknown }>("/auth/login", {
+  const data = await request<{ accessToken: string; refreshToken?: string; user: unknown }>("/auth/login", {
     method: "POST",
     auth: false,
     body: { email, password },
   });
   tokenStore.accessToken = data.accessToken;
+  if (data.refreshToken) tokenStore.refreshToken = data.refreshToken;
   return data;
 }
 
 export async function authSignInWithGoogle(idToken: string) {
   await ensureCsrfToken();
-  const data = await request<{ accessToken: string; user: any }>("/auth/google", {
+  const data = await request<{ accessToken: string; refreshToken?: string; user: any }>("/auth/google", {
     method: "POST",
     auth: false,
     body: { idToken },
   });
   tokenStore.accessToken = data.accessToken;
+  if (data.refreshToken) tokenStore.refreshToken = data.refreshToken;
   return data;
 }
 
@@ -163,8 +178,12 @@ export async function authSignUp(email: string, password: string, metadata?: Rec
 
 export async function authSignOut() {
   await ensureCsrfToken();
-  await request<void>("/auth/logout", { method: "POST" });
+  await request<void>("/auth/logout", {
+    method: "POST",
+    body: tokenStore.refreshToken ? { refreshToken: tokenStore.refreshToken } : {},
+  });
   tokenStore.accessToken = null;
+  tokenStore.refreshToken = null;
 }
 
 export function createRealtimeSocket(onMessage: (payload: any) => void) {

@@ -7,10 +7,24 @@ const parseBool = (value: string | undefined, fallback: boolean) => {
   return value === "true" || value === "1";
 };
 
+const parseFrontendOrigins = (): string[] => {
+  const raw = process.env.FRONTEND_URLS || process.env.FRONTEND_URL || "http://localhost:8080";
+  return raw
+    .split(",")
+    .map((s) => s.trim().replace(/\/+$/, ""))
+    .filter(Boolean);
+};
+
 export const config = {
   nodeEnv: process.env.NODE_ENV || "development",
   port: Number(process.env.PORT || 4000),
-  frontendUrl: process.env.FRONTEND_URL || "http://localhost:8080",
+  /** @deprecated use frontendOrigins for CORS; kept for docs/scripts */
+  frontendUrl: (process.env.FRONTEND_URLS || process.env.FRONTEND_URL || "http://localhost:8080")
+    .split(",")[0]
+    .trim()
+    .replace(/\/+$/, ""),
+  /** All browser origins allowed for CORS (comma-separated in FRONTEND_URL or FRONTEND_URLS). */
+  frontendOrigins: parseFrontendOrigins(),
   databaseUrl: process.env.DATABASE_URL || "",
   jwt: {
     accessSecret: process.env.JWT_ACCESS_SECRET || "dev-access-secret",

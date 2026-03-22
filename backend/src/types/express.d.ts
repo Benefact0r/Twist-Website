@@ -7,7 +7,6 @@ declare global {
         userId: string;
         role: UserRole;
       };
-      csrfTokenValue?: string;
     }
   }
 }
