@@ -1,0 +1,44 @@
+steps:
+  # 1. Build the Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    id: Build
+    args: 
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/twist-api:$COMMIT_SHA'
+      - '--cache-from'
+      - 'gcr.io/$PROJECT_ID/twist-api:latest'
+      - '-f'
+      - 'backend/Dockerfile'
+      - './backend'
+      
+  # 2. Push the Docker image to Google Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    id: Push
+    args: 
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/twist-api:$COMMIT_SHA'
+
+  # 3. Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: Deploy
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'twist-api' # Name of the Cloud Run service
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/twist-api:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1' # Default region, can be changed via Cloud Console
+      - '--allow-unauthenticated'
+      - '--platform'
+      - 'managed'
+      - '--set-env-vars'
+      - 'NODE_ENV=production'
+
+images:
+  - 'gcr.io/$PROJECT_ID/twist-api:$COMMIT_SHA'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
