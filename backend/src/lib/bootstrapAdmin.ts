@@ -16,12 +16,6 @@ export async function bootstrapFirstAdmin(): Promise<void> {
   const email = process.env.BOOTSTRAP_ADMIN_EMAIL?.trim().toLowerCase();
   if (!email) return;
 
-  const adminCount = await prisma.user.count({ where: { role: UserRole.ADMIN } });
-  if (adminCount > 0) {
-    console.log("[bootstrap] skipped: an admin user already exists");
-    return;
-  }
-
   const password = process.env.BOOTSTRAP_ADMIN_PASSWORD?.trim();
   const existing = await prisma.user.findUnique({ where: { email } });
 
