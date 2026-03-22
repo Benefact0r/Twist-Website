@@ -285,3 +285,183 @@ adminRouter.post("/audit-logs", requireAuth, requireRole(UserRole.ADMIN), async 
   });
   return res.status(201).json({ log });
 });
+
+// --- LISTINGS ADMIN ROUTES ---
+adminRouter.get("/listings", ...adminRoleGuard, async (req, res) => {
+  const q = String(req.query.q || "").trim();
+  const status = req.query.status ? String(req.query.status).toUpperCase() : undefined;
+  const page = Math.max(0, Number(req.query.page || 0));
+  const pageSize = Math.max(1, Math.min(100, Number(req.query.pageSize || 20)));
+
+  const where: any = {};
+  if (q) {
+    where.title = { contains: q, mode: "insensitive" };
+  }
+  if (status) {
+    where.status = status as import("@prisma/client").ListingStatus;
+  }
+
+  const [listings, totalCount] = await Promise.all([
+    prisma.listing.findMany({
+      where,
+      include: { seller: { select: { id: true, email: true, username: true } } },
+      orderBy: { createdAt: "desc" },
+      skip: page * pageSize,
+      take: pageSize,
+    }),
+    prisma.listing.count({ where }),
+  ]);
+
+  return res.json({
+    items: listings,
+    totalCount,
+    totalPages: Math.ceil(totalCount / pageSize),
+    page,
+    pageSize,
+  });
+});
+
+adminRouter.patch("/listings/:id", ...adminRoleGuard, async (req, res) => {
+  const schema = z.object({
+    status: z.enum(["DRAFT", "ACTIVE", "SOLD", "ARCHIVED"]).optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const listing = await prisma.listing.findUnique({ where: { id: req.params.id as string } });
+  if (!listing) return res.status(404).json({ error: "Listing not found" });
+
+  const updated = await prisma.listing.update({
+    where: { id: listing.id },
+    data: { status: parsed.data.status as any },
+  });
+
+  await logAdminAction(req.auth!.userId, "admin_listing_update", "listing", listing.id, {
+    previous_status: listing.status,
+    next_status: updated.status,
+  });
+
+  return res.json({ listing: updated });
+});
+
+adminRouter.delete("/listings/:id", ...adminRoleGuard, async (req, res) => {
+  const listing = await prisma.listing.findUnique({ where: { id: req.params.id as string } });
+  if (!listing) return res.status(404).json({ error: "Listing not found" });
+
+  await prisma.listing.delete({ where: { id: listing.id } });
+
+  await logAdminAction(req.auth!.userId, "admin_listing_delete", "listing", listing.id, {
+    deleted_title: listing.title,
+  });
+
+  return res.status(204).send();
+});
+
+// --- REPORTS ADMIN ROUTES ---
+adminRouter.get("/reports", ...adminRoleGuard, async (req, res) => {
+  const status = req.query.status ? String(req.query.status).toUpperCase() : undefined;
+  const page = Math.max(0, Number(req.query.page || 0));
+  const pageSize = Math.max(1, Math.min(100, Number(req.query.pageSize || 20)));
+
+  const where: any = {};
+  if (status) {
+    where.status = status as import("@prisma/client").ReportStatus;
+  }
+
+  const [reports, totalCount] = await Promise.all([
+    prisma.report.findMany({
+      where,
+      include: { reporter: { select: { id: true, email: true, username: true } } },
+      orderBy: { createdAt: "desc" },
+      skip: page * pageSize,
+      take: pageSize,
+    }),
+    prisma.report.count({ where }),
+  ]);
+
+  return res.json({
+    items: reports,
+    totalCount,
+    totalPages: Math.ceil(totalCount / pageSize),
+    page,
+    pageSize,
+  });
+});
+
+adminRouter.patch("/reports/:id", ...adminRoleGuard, async (req, res) => {
+  const schema = z.object({
+    status: z.enum(["OPEN", "IN_REVIEW", "RESOLVED", "REJECTED"]),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const report = await prisma.report.findUnique({ where: { id: req.params.id as string } });
+  if (!report) return res.status(404).json({ error: "Report not found" });
+
+  const updated = await prisma.report.update({
+    where: { id: report.id },
+    data: { status: parsed.data.status as any },
+  });
+
+  await logAdminAction(req.auth!.userId, "admin_report_update", "report", report.id, {
+    previous_status: report.status,
+    next_status: updated.status,
+  });
+
+  return res.json({ report: updated });
+});
+
+// --- ORDERS ADMIN ROUTES ---
+adminRouter.get("/orders", ...adminRoleGuard, async (req, res) => {
+  const status = req.query.status ? String(req.query.status).toUpperCase() : undefined;
+  const page = Math.max(0, Number(req.query.page || 0));
+  const pageSize = Math.max(1, Math.min(100, Number(req.query.pageSize || 20)));
+
+  const where: any = {};
+  if (status) {
+    where.status = status;
+  }
+
+  const [orders, totalCount] = await Promise.all([
+    prisma.order.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip: page * pageSize,
+      take: pageSize,
+    }),
+    prisma.order.count({ where }),
+  ]);
+
+  return res.json({
+    items: orders,
+    totalCount,
+    totalPages: Math.ceil(totalCount / pageSize),
+    page,
+    pageSize,
+  });
+});
+
+// --- AUDIT LOGS ADMIN ROUTES ---
+adminRouter.get("/audit-logs", ...adminRoleGuard, async (req, res) => {
+  const page = Math.max(0, Number(req.query.page || 0));
+  const pageSize = Math.max(1, Math.min(100, Number(req.query.pageSize || 20)));
+
+  const [logs, totalCount] = await Promise.all([
+    prisma.auditLog.findMany({
+      include: { admin: { select: { id: true, email: true, username: true } } },
+      orderBy: { createdAt: "desc" },
+      skip: page * pageSize,
+      take: pageSize,
+    }),
+    prisma.auditLog.count(),
+  ]);
+
+  return res.json({
+    items: logs,
+    totalCount,
+    totalPages: Math.ceil(totalCount / pageSize),
+    page,
+    pageSize,
+  });
+});
+

@@ -220,6 +220,14 @@ export function Header() {
                       )}
                     </Link>
                   </DropdownMenuItem>
+                  {profile?.role === 'ADMIN' && (
+                    <DropdownMenuItem asChild className="rounded-lg px-3 py-2.5">
+                      <Link to="/admin/users" className="cursor-pointer text-primary">
+                        <User className="h-4 w-4 mr-2.5" />
+                        {language === 'ka' ? 'ადმინ პანელი' : 'Admin Dashboard'}
+                      </Link>
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={handleSignOut} className="rounded-lg px-3 py-2.5 cursor-pointer text-destructive focus:text-destructive">
                     <LogOut className="h-4 w-4 mr-2.5" />
