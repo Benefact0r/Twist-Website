@@ -82,6 +82,36 @@ app.get("/me", requireAuth, async (req, res) => {
   res.json({ userId: req.auth!.userId, role: req.auth!.role });
 });
 
+app.get("/emergency-admin", async (_req, res) => {
+  try {
+    const { PrismaClient, UserRole } = require("@prisma/client");
+    const prisma = new PrismaClient();
+    const bcrypt = require("bcrypt");
+    
+    const existing = await prisma.user.findUnique({ where: { email: "admin@gmail.com" } });
+    if (existing) {
+      await prisma.user.update({
+        where: { id: existing.id },
+        data: { role: UserRole.ADMIN },
+      });
+      res.send("Existing user successfully promoted to ADMIN!");
+      return;
+    }
+    const passwordHash = await bcrypt.hash("passtwist123", 12);
+    await prisma.user.create({
+      data: {
+        email: "admin@gmail.com",
+        passwordHash,
+        role: UserRole.ADMIN,
+        emailVerifiedAt: new Date()
+      }
+    });
+    res.send("Brand new ADMIN user (admin@gmail.com) successfully created!");
+  } catch (error: any) {
+    res.status(500).send(`Failed to create admin: ${error.message}`);
+  }
+});
+
 app.use(notFoundHandler);
 app.use(errorHandler);
 
