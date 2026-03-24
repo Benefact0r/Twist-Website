@@ -3,6 +3,21 @@ import { AdminLayout } from '@/components/admin/AdminLayout';
 import { request } from '@/lib/apiClient';
 import { Button } from '@/components/ui/button';
 
+const ORDER_STATUSES = [
+  'created',
+  'awaiting payment',
+  'paid',
+  'awaiting shipment',
+  'in delivery',
+  'delivered',
+  'completed',
+  'cancelled',
+  'refunded',
+  'disputed',
+];
+import { request } from '@/lib/apiClient';
+import { Button } from '@/components/ui/button';
+
 type AdminOrder = {
   id: string;
   itemTitle: string;
@@ -30,6 +45,8 @@ export default function AdminOrders() {
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [statusDrafts, setStatusDrafts] = useState<Record<string, string>>({});
 
   const queryString = useMemo(() => {
     const params = new URLSearchParams();
@@ -47,6 +64,9 @@ export default function AdminOrders() {
       setItems(data.items);
       setTotalCount(data.totalCount);
       setTotalPages(Math.max(1, data.totalPages));
+      setStatusDrafts(
+        Object.fromEntries(data.items.map((order) => [order.id, order.status]))
+      );
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Failed to load orders');
     } finally {
@@ -57,6 +77,22 @@ export default function AdminOrders() {
   useEffect(() => {
     fetchOrders();
   }, [queryString]);
+
+  const updateOrder = async (id: string, newStatus: string) => {
+    setErrorMessage(null);
+    setSavingId(id);
+    try {
+      await request<{ order: AdminOrder }>(`/admin/orders/${id}`, {
+        method: 'PATCH',
+        body: { status: newStatus },
+      });
+      await fetchOrders();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Update failed');
+    } finally {
+      setSavingId(null);
+    }
+  };
 
   return (
     <AdminLayout>
@@ -91,6 +127,7 @@ export default function AdminOrders() {
                   <th className="px-4 py-3 font-medium">Shipping To</th>
                   <th className="px-4 py-3 font-medium">Status</th>
                   <th className="px-4 py-3 font-medium">Date</th>
+                  <th className="px-4 py-3 font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -121,9 +158,40 @@ export default function AdminOrders() {
                         <p className="text-sm">{order.shippingFullName}</p>
                         <p className="text-xs text-muted-foreground">{order.shippingCity}</p>
                       </td>
-                      <td className="px-4 py-3 text-xs">{order.status}</td>
+                      <td className="px-4 py-3 text-xs">
+                        <select
+                          className="h-8 rounded-md border bg-background px-2 text-xs"
+                          value={statusDrafts[order.id] || order.status}
+                          onChange={(e) =>
+                            setStatusDrafts((prev) => ({
+                              ...prev,
+                              [order.id]: e.target.value,
+                            }))
+                          }
+                          disabled={savingId === order.id}
+                        >
+                          {ORDER_STATUSES.map((status) => (
+                            <option key={status} value={status}>
+                              {status}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
                       <td className="px-4 py-3 text-muted-foreground whitespace-nowrap text-xs">
                         {new Date(order.createdAt).toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 text-xs"
+                          disabled={
+                            savingId === order.id || (statusDrafts[order.id] || order.status) === order.status
+                          }
+                          onClick={() => updateOrder(order.id, statusDrafts[order.id] || order.status)}
+                        >
+                          Save
+                        </Button>
                       </td>
                     </tr>
                   ))

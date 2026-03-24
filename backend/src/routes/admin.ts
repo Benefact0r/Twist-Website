@@ -413,7 +413,8 @@ adminRouter.patch("/reports/:id", ...adminRoleGuard, async (req, res) => {
 
 // --- ORDERS ADMIN ROUTES ---
 adminRouter.get("/orders", ...adminRoleGuard, async (req, res) => {
-  const status = req.query.status ? String(req.query.status).toUpperCase() : undefined;
+  const statusRaw = req.query.status;
+  const status = typeof statusRaw === "string" ? statusRaw.toUpperCase() : undefined;
   const page = Math.max(0, Number(req.query.page || 0));
   const pageSize = Math.max(1, Math.min(100, Number(req.query.pageSize || 20)));
 
@@ -441,6 +442,43 @@ adminRouter.get("/orders", ...adminRoleGuard, async (req, res) => {
   });
 });
 
+adminRouter.patch("/orders/:id", ...adminRoleGuard, async (req, res) => {
+  const schema = z.object({
+    status: z.string().optional(),
+    pickupPointId: z.string().nullable().optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const order = await prisma.order.findUnique({ where: { id: req.params.id as string } });
+  if (!order) return res.status(404).json({ error: "Order not found" });
+
+  const updated = await prisma.order.update({
+    where: { id: order.id },
+    data: { 
+      status: parsed.data.status || order.status,
+      pickupPointId: parsed.data.pickupPointId !== undefined ? parsed.data.pickupPointId : undefined
+    },
+  });
+
+  if (parsed.data.status && parsed.data.status !== order.status) {
+    await prisma.orderStatusHistory.create({
+      data: {
+        orderId: order.id,
+        status: parsed.data.status,
+        adminId: req.auth!.userId,
+        note: "Admin manual status override",
+      }
+    });
+    await logAdminAction(req.auth!.userId, "admin_order_update", "order", order.id, {
+      previous_status: order.status,
+      next_status: updated.status,
+    });
+  }
+
+  return res.json({ order: updated });
+});
+
 // --- AUDIT LOGS ADMIN ROUTES ---
 adminRouter.get("/audit-logs", ...adminRoleGuard, async (req, res) => {
   const page = Math.max(0, Number(req.query.page || 0));
@@ -465,3 +503,156 @@ adminRouter.get("/audit-logs", ...adminRoleGuard, async (req, res) => {
   });
 });
 
+
+// --- DASHBOARD STATS ROUTES ---
+adminRouter.get("/stats", ...adminRoleGuard, async (req, res) => {
+  const [
+    totalUsers,
+    activeListings,
+    soldListings,
+    totalOrders,
+    completedOrders,
+    pendingOrders,
+    openReports,
+    recentUsers,
+    recentListings,
+    recentOrders,
+  ] = await Promise.all([
+    prisma.user.count(),
+    prisma.listing.count({ where: { status: "ACTIVE" } }),
+    prisma.listing.count({ where: { status: "SOLD" } }),
+    prisma.order.count(),
+    prisma.order.count({ where: { status: "completed" } }),
+    prisma.order.count({ where: { status: { in: ["created", "paid"] } } }),
+    prisma.report.count({ where: { status: "OPEN" } }),
+    prisma.user.findMany({ orderBy: { createdAt: "desc" }, take: 5, select: { id: true, email: true, createdAt: true, role: true } }),
+    prisma.listing.findMany({ orderBy: { createdAt: "desc" }, take: 5, select: { id: true, title: true, price: true, createdAt: true, status: true } }),
+    prisma.order.findMany({ orderBy: { createdAt: "desc" }, take: 5, select: { id: true, itemTitle: true, totalAmount: true, status: true, createdAt: true } }),
+  ]);
+
+  return res.json({
+    totalUsers,
+    activeListings,
+    soldListings,
+    totalOrders,
+    completedOrders,
+    pendingOrders,
+    openReports,
+    recentUsers,
+    recentListings,
+    recentOrders,
+  });
+});
+
+// --- PICKUP POINTS ADMIN ROUTES ---
+adminRouter.get("/pickup-points", ...adminRoleGuard, async (req, res) => {
+  const points = await prisma.pickupPoint.findMany({ orderBy: { createdAt: "desc" } });
+  return res.json({ items: points });
+});
+
+adminRouter.post("/pickup-points", ...adminRoleGuard, async (req, res) => {
+  const schema = z.object({
+    name: z.string().min(1),
+    address: z.string().min(1),
+    workingHours: z.string().optional(),
+    contactNumber: z.string().optional(),
+    isActive: z.boolean().default(true),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const point = await prisma.pickupPoint.create({ data: parsed.data });
+  await logAdminAction(req.auth!.userId, "admin_pickup_point_create", "pickupPoint", point.id, { name: point.name });
+  return res.status(201).json({ pickupPoint: point });
+});
+
+adminRouter.patch("/pickup-points/:id", ...adminRoleGuard, async (req, res) => {
+  const schema = z.object({
+    name: z.string().min(1).optional(),
+    address: z.string().min(1).optional(),
+    workingHours: z.string().optional(),
+    contactNumber: z.string().optional(),
+    isActive: z.boolean().optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const point = await prisma.pickupPoint.update({
+    where: { id: req.params.id as string },
+    data: parsed.data,
+  });
+  await logAdminAction(req.auth!.userId, "admin_pickup_point_update", "pickupPoint", point.id, { isActive: point.isActive });
+  return res.json({ pickupPoint: point });
+});
+
+// --- PLATFORM SETTINGS ADMIN ROUTES ---
+adminRouter.get("/platform-settings", ...adminRoleGuard, async (req, res) => {
+  const settings = await prisma.platformSetting.findMany({ orderBy: { key: "asc" } });
+  return res.json({ items: settings });
+});
+
+adminRouter.post("/platform-settings", ...adminRoleGuard, async (req, res) => {
+  const schema = z.object({
+    key: z.string().min(1),
+    value: z.string(),
+    type: z.string().default("string"),
+    description: z.string().optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const setting = await prisma.platformSetting.upsert({
+    where: { key: parsed.data.key },
+    update: { value: parsed.data.value, type: parsed.data.type, description: parsed.data.description },
+    create: parsed.data,
+  });
+  await logAdminAction(req.auth!.userId, "admin_platform_setting_upsert", "platformSetting", setting.id, { key: setting.key });
+  return res.json({ setting });
+});
+
+// --- SUPPORT TICKETS ADMIN ROUTES ---
+adminRouter.get("/tickets", ...adminRoleGuard, async (req, res) => {
+  const status = req.query.status ? String(req.query.status).toUpperCase() : undefined;
+  const page = Math.max(0, Number(req.query.page || 0));
+  const pageSize = Math.max(1, Math.min(100, Number(req.query.pageSize || 20)));
+
+  const where: any = {};
+  if (status) {
+    where.status = status as import("@prisma/client").TicketStatus;
+  }
+
+  const [tickets, totalCount] = await Promise.all([
+    prisma.supportTicket.findMany({
+      where,
+      include: { user: { select: { id: true, email: true, username: true } } },
+      orderBy: { createdAt: "desc" },
+      skip: page * pageSize,
+      take: pageSize,
+    }),
+    prisma.supportTicket.count({ where }),
+  ]);
+
+  return res.json({
+    items: tickets,
+    totalCount,
+    totalPages: Math.ceil(totalCount / pageSize),
+    page,
+    pageSize,
+  });
+});
+
+adminRouter.patch("/tickets/:id", ...adminRoleGuard, async (req, res) => {
+  const schema = z.object({
+    status: z.enum(["OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED"]).optional(),
+    internalNotes: z.string().optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+  const ticket = await prisma.supportTicket.update({
+    where: { id: req.params.id as string },
+    data: parsed.data,
+  });
+  await logAdminAction(req.auth!.userId, "admin_ticket_update", "supportTicket", ticket.id, { status: ticket.status });
+  return res.json({ ticket });
+});

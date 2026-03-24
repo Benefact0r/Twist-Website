@@ -45,6 +45,13 @@ enum ReportStatus {
   REJECTED
 }
 
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
 model User {
   id                 String         @id @default(cuid())
   email              String         @unique
@@ -79,6 +86,9 @@ model User {
   reports            Report[]
   notifications      Notification[]
   auditLogs          AuditLog[]      @relation("AuditActor")
+  supportTickets     SupportTicket[]
+  ticketMessages     TicketMessage[]
+  orderStatusUpdates OrderStatusHistory[]
 }
 
 model RefreshToken {
@@ -262,6 +272,9 @@ model Order {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
   listing            Listing  @relation(fields: [listingId], references: [id], onDelete: Restrict)
+  pickupPointId      String?
+  pickupPoint        PickupPoint? @relation(fields: [pickupPointId], references: [id], onDelete: SetNull)
+  statusHistory      OrderStatusHistory[]
 
   @@index([buyerId, createdAt])
   @@index([sellerId, createdAt])
@@ -279,4 +292,69 @@ model AuditLog {
 
   @@index([adminId, createdAt])
   @@index([entityType, entityId])
+}
+
+model PickupPoint {
+  id            String   @id @default(cuid())
+  name          String
+  address       String
+  workingHours  String?
+  contactNumber String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  orders        Order[]
+}
+
+model PlatformSetting {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       String
+  type        String   @default("string")
+  description String?
+  updatedAt   DateTime @updatedAt
+}
+
+model SupportTicket {
+  id             String          @id @default(cuid())
+  userId         String
+  subject        String
+  description    String
+  status         TicketStatus    @default(OPEN)
+  relatedType    String?
+  relatedId      String?
+  internalNotes  String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages       TicketMessage[]
+
+  @@index([userId, status])
+  @@index([status, createdAt])
+}
+
+model TicketMessage {
+  id        String        @id @default(cuid())
+  ticketId  String
+  senderId  String
+  content   String
+  isInternal Boolean      @default(false)
+  createdAt DateTime      @default(now())
+  ticket    SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  sender    User          @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId, createdAt])
+}
+
+model OrderStatusHistory {
+  id        String   @id @default(cuid())
+  orderId   String
+  status    String
+  note      String?
+  adminId   String?
+  createdAt DateTime @default(now())
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  admin     User?    @relation(fields: [adminId], references: [id], onDelete: SetNull)
+
+  @@index([orderId, createdAt])
 }
