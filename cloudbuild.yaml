@@ -30,7 +30,7 @@ steps:
       - '--image'
       - 'gcr.io/$PROJECT_ID/twist-api:$COMMIT_SHA'
       - '--region'
-      - 'us-central1' # Default region, can be changed via Cloud Console
+      - 'europe-west1'
       - '--allow-unauthenticated'
       - '--platform'
       - 'managed'
