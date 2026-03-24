@@ -173,6 +173,7 @@ const Auth: React.FC = () => {
     window.google?.accounts?.id?.initialize({
       client_id: googleClientId,
       callback: handleGoogleCredential,
+      itp_support: true,
     });
 
     googleButtonRef.current.innerHTML = '';
